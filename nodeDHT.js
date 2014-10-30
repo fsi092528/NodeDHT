@@ -83,14 +83,14 @@ DHT.prototype.processFindNodeReceived = function(nodes) {
             //do nothing
         }
         else {
-            self.ktable.push(new KNode(node.address, node.port, node.nid));
+            self.ktable.push(node);
         }
     });
 };
 DHT.prototype.processFindNode = function(msg, rinfo) {
     var target = msg.a.target;
     if (target) {
-        this.master.log(target);
+        this.master.log(rinfo, target);
     }
     this.playDead(rinfo);
 };
@@ -131,10 +131,10 @@ DHT.prototype.dataReceived = function(msg, rinfo) {
         if (msg.y == "r" && msg.r.nodes) {
             this.processFindNodeReceived(msg.r.nodes);
         }
-        else if (msg.y == "q" && (msg.q == "get_peers")) {
+        else if (msg.y == "q" && msg.q == "get_peers") {
             this.processGetPeers(msg, rinfo);
         }
-        else if (msg.y == "q" && (msg.q == "find_node")) {
+        else if (msg.y == "q" && msg.q == "find_node") {
             this.processFindNode(msg, rinfo);
         }
     }
@@ -162,8 +162,8 @@ DHT.prototype.start = function() {
 };
 
 function Master() {}
-Master.prototype.log = function(infohash) {
-    console.log(infohash.toString("hex"));
+Master.prototype.log = function(rinfo, infohash) {
+    console.log("%s from %s:%s", infohash.toString("hex"), rinfo.address, rinfo.port);
 };
 
 function KTable() {
@@ -177,10 +177,5 @@ KTable.prototype.push = function(node) {
     this.nodes.push(node);
 };
 
-function KNode(address, port, nid) {
-    this.address = address;
-    this.port = port;
-    this.nid = nid;
-}
 
 new DHT(new Master(), "0.0.0.0", 6881).start();
