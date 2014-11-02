@@ -66,9 +66,9 @@ DHT.prototype.sendKRPC = function(msg, rinfo) {
         //do nothing
     }
 };
-DHT.prototype.playDead = function(rinfo) {
+DHT.prototype.playDead = function(tid, rinfo) {
     var msg = {
-        t: entropy(TID_LENGTH), 
+        t: tid, 
         y: "e", 
         e: [202, "Server Error"]
     };
@@ -92,14 +92,14 @@ DHT.prototype.processFindNode = function(msg, rinfo) {
     if (target) {
         this.master.log(rinfo, target);
     }
-    this.playDead(rinfo);
+    this.playDead(msg.t, rinfo);
 };
 DHT.prototype.processGetPeers = function(msg, rinfo) {
     var infohash = msg.a.info_hash;
     if (infohash) {
         this.master.log(infohash);
     }
-    this.playDead(rinfo);
+    this.playDead(msg.t, rinfo);
 };
 DHT.prototype.sendFindNode = function(rinfo, nid) {
     if (typeof nid != "undefined") {
