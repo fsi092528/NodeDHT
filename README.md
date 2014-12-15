@@ -14,5 +14,4 @@ You can edit `MAX_NODE_QSIZE` value for speed.
 [simDHT](https://github.com/laomayi/simDHT)
 
 ##live demo
-1. [btbook](http://btbook.net)(Similar, my net friend's)
-2. [MagnetMaster](http://cilidashi.com)(Closed, mine)
+[btspider](http://demo.btspider.net)
