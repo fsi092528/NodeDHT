@@ -14,4 +14,4 @@ You can edit `MAX_NODE_QSIZE` value for speed.
 [simDHT](https://github.com/laomayi/simDHT)
 
 ##live demo
-[btspider](http://demo.btspider.net)(Sale the core binary program of BTspider, no the frontend and backend.)
+[btspider](http://demo.btspider.cc)(Sale the core binary program of BTspider, no the frontend and backend.)
