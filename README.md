@@ -1,5 +1,5 @@
 ##nodeDHT:
-A DHT crawler, is not quite based on Kademlia, written by NodeJS, the code is very very simple.
+A DHT crawler, was written by NodeJS, the code is very very simple.
 
 ##dependencies:
 `npm install`
