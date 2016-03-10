@@ -1,181 +1,208 @@
-var crypto = require("crypto");
-var dgram = require("dgram");
-var timers = require("timers");
+'use strict'
 
-var bencode = require("bencode");
+var dgram = require('dgram');
+var crypto = require('crypto');
+
+var bencode = require('bencode');
 
 var BOOTSTRAP_NODES = [
-    ["router.bittorrent.com", 6881],
-    ["dht.transmissionbt.com", 6881],
-    ["router.utorrent.com", 6881]
+    ['router.bittorrent.com', 6881],
+    ['dht.transmissionbt.com', 6881]
 ];
 var TID_LENGTH = 4;
-var MAX_QNODE_SIZE = 1000;
+var NODES_MAX_SIZE = 200;
+var TOKEN_LENGTH = 2;
 
-function randomID() {
-    return new Buffer(
-        crypto.createHash("sha1")
-            .update(crypto.randomBytes(20))
-            .digest("hex"),
-        "hex"
-    );
-}
-
-function decodeNodes(data) {
-  var nodes = [];
-  for (var i = 0; i + 26 <= data.length; i += 26) {
-    nodes.push({
-      nid: data.slice(i, i + 20),
-      address: data[i + 20] + "." + data[i + 21] + "." +
-               data[i + 22] + "." + data[i + 23],
-      port: data.readUInt16BE(i + 24)
-    });
-  }
-  return nodes;
+var randomID = function() {
+    return crypto.createHash('sha1').update(crypto.randomBytes(20)).digest();
 };
 
-function getNeighbor(target) {
-    return  Buffer.concat([target.slice(0, 10), randomID().slice(10)]);
+var decodeNodes = function(data) {
+    var nodes = [];
+    for (var i = 0; i + 26 <= data.length; i += 26) {
+        nodes.push({
+            nid: data.slice(i, i + 20),
+            address: data[i + 20] + '.' + data[i + 21] + '.' +
+                data[i + 22] + '.' + data[i + 23],
+            port: data.readUInt16BE(i + 24)
+        });
+    }
+    return nodes;
+};
+
+var genNeighborID = function(target, nid) {
+    return  Buffer.concat([target.slice(0, 10), nid.slice(10)]);
 }
 
-function entropy(len) {
-    var text = [];
-    var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZab" 
-        + "cdefghijklmnopqrstuvwxyz0123456789";
-    var length = chars.length;
-    for (var i=0; i < len; i++) {
-        text.push(chars.charAt(Math.floor(Math.random() * length)));
+var KTable = function(maxsize) {
+    this.nid = randomID();
+    this.nodes = [];
+    this.maxsize = maxsize;
+};
+
+KTable.prototype.push = function(node) {
+    if (this.nodes.length >= this.maxsize) {
+        return;
     }
-    return text.join("");
+    this.nodes.push(node);
+};
+
+var DHTSpider = function(options) {
+    this.address = options.address;
+    this.port = options.port;
+    this.udp = dgram.createSocket('udp4');
+    this.ktable = new KTable(NODES_MAX_SIZE);
 }
 
-function DHT(master, bindIP, bindPort) {
-    this.master = master;
-    this.bindIP = bindIP;
-    this.bindPort = bindPort;
-    this.ktable = new KTable();
-    this.udp = dgram.createSocket("udp4");
-    this.udp.bind(this.bindPort, this.bindIP);
-}
-DHT.prototype.sendKRPC = function(msg, rinfo) {
-    try {
-        var buf = bencode.encode(msg);
-        this.udp.send(buf, 0, buf.length, rinfo.port, rinfo.address);
-    }
-    catch (ex) {
-        //do nothing
-    }
+DHTSpider.prototype.sendKRPC = function(msg, rinfo) {
+    var buf = bencode.encode(msg);
+    this.udp.send(buf, 0, buf.length, rinfo.port, rinfo.address);
 };
-DHT.prototype.playDead = function(tid, rinfo) {
-    var msg = {
-        t: tid, 
-        y: "e", 
-        e: [202, "Server Error"]
-    };
-    this.sendKRPC(msg, rinfo);
-};
-DHT.prototype.processFindNodeReceived = function(nodes) {
+
+DHTSpider.prototype.onFindNodeResponse = function(nodes) {
     var nodes = decodeNodes(nodes);
-    var self = this;
     nodes.forEach(function(node) {
-        if (node.address == self.bindIP && node.port == self.bindPort
-            || node.nid == self.ktable.nid) {
-            //do nothing
+        if (node.address != this.address && node.nid != this.ktable.nid
+                && node.port < 65536 && node.port > 0) {
+            this.ktable.push(node);
         }
-        else {
-            self.ktable.push(node);
-        }
-    });
+    }.bind(this));
 };
-DHT.prototype.processFindNode = function(msg, rinfo) {
-    var target = msg.a.target;
-    if (target) {
-        this.master.log(rinfo, target);
-    }
-    this.playDead(msg.t, rinfo);
-};
-DHT.prototype.processGetPeers = function(msg, rinfo) {
-    var infohash = msg.a.info_hash;
-    if (infohash) {
-        this.master.log(infohash);
-    }
-    this.playDead(msg.t, rinfo);
-};
-DHT.prototype.sendFindNode = function(rinfo, nid) {
-    if (typeof nid != "undefined") {
-        var nid = getNeighbor(nid);
-    }
-    else {
-        var nid = randomID();
-    }
+
+DHTSpider.prototype.sendFindNodeRequest = function(rinfo, nid) {
+    var _nid = nid != undefined ? genNeighborID(nid, this.ktable.nid) : this.ktable.nid;
     var msg = {
-        t: entropy(TID_LENGTH),
-        y: "q",
-        q: "find_node",
+        t: randomID().slice(0, TID_LENGTH),
+        y: 'q',
+        q: 'find_node',
         a: {
-            id: nid,
+            id: _nid,
             target: randomID()
         }
     };
     this.sendKRPC(msg, rinfo);
 };
-DHT.prototype.joinDHT = function() {
-    var self = this;
+
+DHTSpider.prototype.joinDHTNetwork = function() {
     BOOTSTRAP_NODES.forEach(function(node) {
-        self.sendFindNode({address: node[0], port: node[1]});
-    });
+        this.sendFindNodeRequest({address: node[0], port: node[1]});
+    }.bind(this));
 };
-DHT.prototype.dataReceived = function(msg, rinfo) {
-    try {
-        var msg = bencode.decode(msg);
-        if (msg.y == "r" && msg.r.nodes) {
-            this.processFindNodeReceived(msg.r.nodes);
-        }
-        else if (msg.y == "q" && msg.q == "get_peers") {
-            this.processGetPeers(msg, rinfo);
-        }
-        else if (msg.y == "q" && msg.q == "find_node") {
-            this.processFindNode(msg, rinfo);
-        }
-    }
-    catch (ex) {
-        //do nothing
-    }
-};
-DHT.prototype.wander = function() {
-    var self = this;
+
+DHTSpider.prototype.makeNeighbours = function() {
     this.ktable.nodes.forEach(function(node) {
-        self.sendFindNode({address: node.address, port: node.port}, node.nid);
-    });
+        this.sendFindNodeRequest({
+            address: node.address,
+            port: node.port
+        }, node.nid);
+    }.bind(this));
     this.ktable.nodes = [];
 };
-DHT.prototype.start = function() {
-    var self = this;
-    this.udp.on("message", function(msg, rinfo) {
-        self.dataReceived(msg, rinfo);
-    });
-    this.udp.on("error", function(err) {
-        //do nothing
-    });
-    timers.setInterval(function() {self.joinDHT()}, 10000);
-    timers.setInterval(function() {self.wander()}, 1000);
-};
 
-function Master() {}
-Master.prototype.log = function(rinfo, infohash) {
-    console.log("%s from %s:%s", infohash.toString("hex"), rinfo.address, rinfo.port);
-};
+DHTSpider.prototype.onGetPeersRequest = function(msg, rinfo) {
+    try {
+        var infohash = msg.a.info_hash;
+        var tid = msg.t;
+        var nid = msg.a.id;
+        var token = infohash.slice(0, TOKEN_LENGTH);
 
-function KTable() {
-    this.nid = randomID();
-    this.nodes = [];
-}
-KTable.prototype.push = function(node) {
-    if (this.nodes.length >= MAX_QNODE_SIZE) {
-        return
+        if (tid === undefined || infohash.length != 20 || nid.length != 20) {
+            throw new Error;
+        }
     }
-    this.nodes.push(node);
+    catch (err) {
+        return;
+    }
+    this.sendKRPC({
+        t: tid,
+        y: 'r',
+        r: {
+            id: genNeighborID(infohash, this.ktable.nid),
+            nodes: '',
+            token: token
+        }
+    }, rinfo);
 };
 
+DHTSpider.prototype.onAnnouncePeerRequest = function(msg, rinfo) {
+    var port;
 
-new DHT(new Master(), "0.0.0.0", 6881).start();
+    try {
+        var infohash = msg.a.info_hash;
+        var token = msg.a.token;
+        var nid = msg.a.id;
+        var tid = msg.t;
+
+        if (tid == undefined) {
+            throw new Error;
+        }
+    }
+    catch (err) {
+        return;
+    }
+
+    if (infohash.slice(0, TOKEN_LENGTH).toString() != token.toString()) {
+        return;
+    }
+
+    if (msg.a.implied_port != undefined && msg.a.implied_port != 0) {
+        port = rinfo.port;
+    }
+    else {
+        port = msg.a.port || 0;
+    }
+
+    if (port >= 65536 || port <= 0) {
+        return;
+    }
+
+    this.sendKRPC({
+        t: tid,
+        y: 'r',
+        r: {
+            id: genNeighborID(nid, this.ktable.nid)
+        }
+    }, rinfo);
+
+    console.log("magnet:?xt=urn:btih:%s from %s:%s", infohash.toString("hex"), rinfo.address, rinfo.port);
+};
+
+DHTSpider.prototype.onMessage = function(msg, rinfo) {
+    try {
+        var msg = bencode.decode(msg);
+        if (msg.y == 'r' && msg.r.nodes) {
+            this.onFindNodeResponse(msg.r.nodes);
+        }
+        else if (msg.y == 'q' && msg.q == 'get_peers') {
+            this.onGetPeersRequest(msg, rinfo);
+        }
+        else if (msg.y == 'q' && msg.q == 'announce_peer') {
+            this.onAnnouncePeerRequest(msg, rinfo);
+        }
+    }
+    catch (err) {
+    }
+};
+
+DHTSpider.prototype.start = function() {
+    this.udp.bind(this.port, this.address);
+
+    this.udp.on('listening', function() {
+        console.log('UDP Server listening on %s:%s', this.address, this.port);
+    }.bind(this));
+
+    this.udp.on('message', function(msg, rinfo) {
+        this.onMessage(msg, rinfo);
+    }.bind(this));
+
+    this.udp.on('error', function() {
+        // do nothing
+    }.bind(this));
+
+    setInterval(function() {
+        this.joinDHTNetwork();
+        this.makeNeighbours();
+    }.bind(this), 1000);
+};
+
+(new DHTSpider({address: '0.0.0.0', port: 6881})).start();
