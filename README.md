@@ -1,5 +1,5 @@
 ##nodeDHT:
-A DHT crawler, written in NodeJS, the code is very very simple.
+A DHT crawler, written in Node.js, the code is very very simple.
 
 ##dependencies:
 `npm install`
