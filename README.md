@@ -1,16 +1,16 @@
-##nodeDHT:
+## nodeDHT:
 A DHT crawler, written in Node.js, the code is very very simple.
 
-##dependencies:
+## dependencies:
 `npm install`
 
-##start nodeDHT
+## start nodeDHT
 `node nodeDHT.js`
 
-##notice:
+## notice:
 You can edit `MAX_NODE_QSIZE` value for speed.
 
-##nodeDHT for Python and Ruby
+## nodeDHT for Python and Ruby
 [simDHT](https://github.com/fanpei91/simDHT)
 [rbdht](https://github.com/fanpei91/rbdht)
 
